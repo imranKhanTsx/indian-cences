@@ -1,0 +1,11 @@
+/data
+/output
+.env
+*.log
+.vs
+__pycache__
+venv/
+
+#files
+split-file.py
+main2.py
