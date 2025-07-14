@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: fastapi-api
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:10000
-    plan: free
