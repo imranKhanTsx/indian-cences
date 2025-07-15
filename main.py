@@ -18,11 +18,20 @@ print("Loaded DB_URL:", DB_URL)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.db_pool = await asyncpg.create_pool(DB_URL)
-    print("✅ Connected to database")
+    max_retries = 5
+    delay = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            app.state.db_pool = await asyncpg.create_pool(DB_URL)
+            print(f"✅ Connected to database (attempt {attempt})")
+            break
+        except Exception as e:
+            print(f"❌ DB connection failed on attempt {attempt}: {e}")
+            if attempt == max_retries:
+                raise e
+            await asyncio.sleep(delay)
     yield
     await app.state.db_pool.close()
-    print("🛑 Disconnected from database")
 
 
 app = FastAPI(lifespan=lifespan)
