@@ -9,3 +9,4 @@ venv/
 #files
 split-file.py
 main2.py
+openapi.json

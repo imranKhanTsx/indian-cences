@@ -2,7 +2,7 @@ import asyncio
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 import asyncpg
 import pandas as pd
@@ -42,22 +42,40 @@ async def root():
     return {"message": "Welcome to Indian Census API 2 🚀"}
 
 
-@app.get("/states")
-async def get_states(
+@app.get("/states", summary="Get State Metadata", tags=["States"])
+async def list_states(
     fields: Optional[str] = Query(
         None,
-        description=(
-            "Comma-separated list of fields to return. "
-            "Allowed: state, name, level, "
-            "district_count, subdistrict_count, town_count, village_count"
-        ),
+        description="Comma-separated list of fields to return. Allowed: state, name, level, district_count, subdistrict_count, town_count, village_count",
         example="state,name,district_count",
     ),
-    sort_by: Optional[str] = Query(None, example="state"),
-    sort_order: Optional[str] = Query("asc", example="desc"),
-    state_code: Optional[int] = Query(None, example=1),
-    limit: int = Query(100, ge=1, le=1000, example=50),
-    offset: int = Query(0, ge=0, example=0),
+    sort_by: Optional[
+        Literal[
+            "state",
+            "name",
+            "level",
+            "district_count",
+            "subdistrict_count",
+            "town_count",
+            "village_count",
+        ]
+    ] = Query(
+        "state", description="Field to sort by. Default is 'state'.", example="state"
+    ),
+    sort_order: Optional[Literal["asc", "desc"]] = Query(
+        "asc", description="Sort order: 'asc' or 'desc'.", example="desc"
+    ),
+    state_code: Optional[int] = Query(
+        None, description="Filter by state code.", example=1
+    ),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="Number of results to return (1–1000).",
+        example=50,
+    ),
+    offset: int = Query(0, ge=0, description="Pagination offset.", example=0),
 ):
     base_columns = ["state", "name", "level"]
     count_fields = {
@@ -130,9 +148,10 @@ async def get_states(
 
 @app.get("/state-population")
 async def get_state_population(
-    states: List[str] = Query(
-        ...,
-        description="One or more state names (e.g. ?states=Karnataka&states=Tamil Nadu)",
+    states: str = Query(
+        ...,  # Required
+        description="Comma-separated state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
     ),
     tru: Optional[str] = Query(
         None,
@@ -148,9 +167,13 @@ async def get_state_population(
             status_code=400, detail="Invalid tru value. Use: total, rural, or urban"
         )
 
-    # Prepare SQL placeholders
-    placeholders = ", ".join(f"${i+1}" for i in range(len(states)))
-    base_values = [s.strip().lower() for s in states]
+    # 👇 Split the comma-separated string into list of states
+    state_list = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not state_list:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
+    placeholders = ", ".join(f"${i+1}" for i in range(len(state_list)))
+    base_values = list(state_list)
 
     meta_query = f"""
         SELECT DISTINCT name, state
@@ -180,10 +203,8 @@ async def get_state_population(
             results = []
             for row in meta_rows:
                 state_entry = {"name": row["name"], "state": row["state"]}
-
                 if include_population:
                     state_entry["population"] = {}
-
                 results.append(state_entry)
 
             if include_population:
@@ -201,14 +222,26 @@ async def get_state_population(
 
 @app.get("/state-gender-population")
 async def get_state_gender_population(
-    states: List[str] = Query(..., description="State names"),
-    tru: Optional[str] = Query(None, description="Total, Rural, or Urban"),
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
+    ),
+    tru: Optional[str] = Query(
+        None,
+        description="Total, Rural, or Urban",
+        example="Rural",
+    ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    values = [s.strip().lower() for s in states]
+    # 👇 Convert comma-separated string to list
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
     placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     gender_query = f"""
@@ -252,17 +285,26 @@ async def get_state_gender_population(
 
 @app.get("/state-literacy")
 async def get_state_literacy(
-    states: List[str] = Query(..., description="State names"),
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
+    ),
     tru: Optional[str] = Query(
         None,
         description="Total, Rural, or Urban. If not provided, all 3 will be returned.",
+        example="Rural",
     ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    values = [s.strip().lower() for s in states]
+    # 👇 Convert comma-separated string into list
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
     placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     literacy_query = f"""
@@ -323,16 +365,24 @@ async def get_state_literacy(
 
 @app.get("/state-workers")
 async def get_state_workers(
-    states: List[str] = Query(..., description="State names"),
-    tru: Optional[str] = Query(None, description="Total, Rural, or Urban"),
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
+    ),
+    tru: Optional[str] = Query(
+        None, description="Total, Rural, or Urban", example="Urban"
+    ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    # Placeholder setup
-    placeholders = ", ".join(f"${i+1}" for i in range(len(states)))
-    values = [s.strip().lower() for s in states]
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
+    placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     # Base query
     worker_query = f"""
@@ -379,15 +429,24 @@ async def get_state_workers(
 
 @app.get("/state-caste-population")
 async def get_state_caste_population(
-    states: List[str] = Query(..., description="State names"),
-    tru: Optional[str] = Query(None, description="Total, Rural, or Urban"),
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
+    ),
+    tru: Optional[str] = Query(
+        None, description="Total, Rural, or Urban", example="Rural"
+    ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    placeholders = ", ".join(f"${i+1}" for i in range(len(states)))
-    values = [s.strip().lower() for s in states]
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
+    placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     caste_query = f"""
         SELECT name, state, tru,
@@ -441,17 +500,25 @@ async def get_state_caste_population(
 
 @app.get("/state-non-workers")
 async def get_state_non_workers(
-    states: List[str] = Query(
-        ..., description="State names (e.g. ?states=Karnataka&states=Tamil Nadu)"
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
     ),
-    tru: Optional[str] = Query(None, description="Total, Rural, or Urban"),
+    tru: Optional[str] = Query(
+        None, description="Total, Rural, or Urban", example="Urban"
+    ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    placeholders = ", ".join(f"${i+1}" for i in range(len(states)))
-    values = [s.strip().lower() for s in states]
+    # Convert comma-separated string to lowercase list
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
+    placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     query = f"""
         SELECT name, state, tru, non_work_p, non_work_m, non_work_f
@@ -550,20 +617,27 @@ async def get_state_locations(
 
 @app.get("/state-households")
 async def get_state_households(
-    states: List[str] = Query(
-        ..., description="State names (e.g. ?states=Karnataka&states=Tamil Nadu)"
+    states: str = Query(
+        ...,
+        description="Comma-separated list of state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        example="Karnataka,Tamil Nadu",
     ),
     tru: Optional[str] = Query(
         None,
         description="Total, Rural, or Urban — filters by TRU. If omitted, shows all.",
+        example="Rural",
     ),
 ):
     allowed_tru = ["total", "rural", "urban"]
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid TRU value")
 
-    placeholders = ", ".join(f"${i+1}" for i in range(len(states)))
-    values = [s.strip().lower() for s in states]
+    # Convert comma-separated string to list of lowercase values
+    values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
+    placeholders = ", ".join(f"${i+1}" for i in range(len(values)))
 
     base_query = f"""
         SELECT name, state, tru, no_hh, tot_p, tot_m, tot_f, p_06, m_06, f_06
@@ -596,28 +670,19 @@ async def get_state_households(
 
                     if tru:
                         state_data[state_id]["households"] = row["no_hh"]
-                        state_data[state_id]["population"] = {
-                            "total": row["tot_p"],
-                            "male": row["tot_m"],
-                            "female": row["tot_f"],
-                        }
-                        state_data[state_id]["under_6"] = {
-                            "total": row["p_06"],
-                            "male": row["m_06"],
-                            "female": row["f_06"],
-                        }
                     else:
                         state_data[state_id]["households"] = {}
-                        state_data[state_id]["population"] = {
-                            "total": row["tot_p"],
-                            "male": row["tot_m"],
-                            "female": row["tot_f"],
-                        }
-                        state_data[state_id]["under_6"] = {
-                            "total": row["p_06"],
-                            "male": row["m_06"],
-                            "female": row["f_06"],
-                        }
+
+                    state_data[state_id]["population"] = {
+                        "total": row["tot_p"],
+                        "male": row["tot_m"],
+                        "female": row["tot_f"],
+                    }
+                    state_data[state_id]["under_6"] = {
+                        "total": row["p_06"],
+                        "male": row["m_06"],
+                        "female": row["f_06"],
+                    }
 
                 if not tru:
                     state_data[state_id]["households"][tru_value] = row["no_hh"]
@@ -626,12 +691,6 @@ async def get_state_households(
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
-
-from collections import defaultdict
-from typing import Optional
-
-from fastapi import Query
 
 
 @app.get("/state-location-hierarchy")
@@ -744,7 +803,10 @@ async def get_location_hierarchy(
 
 @app.get("/district-population-breakdown")
 async def get_district_population_breakdown(
-    states: List[str] = Query(..., description="One or more state names"),
+    states: str = Query(
+        ...,
+        description="Comma-separated state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+    ),
     tru: Optional[str] = Query(None, description="Total, Rural, or Urban"),
     limit: Optional[int] = Query(None, description="Limit number of districts"),
     offset: Optional[int] = Query(0, description="Pagination offset"),
@@ -753,8 +815,13 @@ async def get_district_population_breakdown(
     if tru and tru.lower() not in allowed_tru:
         raise HTTPException(status_code=400, detail="Invalid tru value")
 
-    state_values = [s.strip().lower() for s in states]
+    # Convert comma-separated input to list
+    state_values = [s.strip().lower() for s in states.split(",") if s.strip()]
+    if not state_values:
+        raise HTTPException(status_code=400, detail="No valid state names provided.")
+
     placeholders = ", ".join(f"${i+1}" for i in range(len(state_values)))
+    values = state_values.copy()
 
     query = f"""
         SELECT c.name AS district, s.name AS state, c.tru,
@@ -767,8 +834,6 @@ async def get_district_population_breakdown(
         ) s ON c.state = s.state
         WHERE TRIM(LOWER(c.level)) = 'district'
     """
-
-    values = state_values
 
     if tru:
         query += f" AND TRIM(LOWER(c.tru)) = ${len(values)+1}"
