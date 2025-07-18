@@ -2,10 +2,11 @@ import asyncio
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 import asyncpg
-import pandas as pd
+
+# import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
