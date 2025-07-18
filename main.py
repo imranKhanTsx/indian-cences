@@ -151,7 +151,7 @@ async def list_states(
 async def get_state_population(
     states: str = Query(
         ...,  # Required
-        description="Comma-separated state names (e.g. ?states=Karnataka,Tamil%20Nadu)",
+        description="Comma-separated state names (e.g ?states=Karnataka,Tamil%20Nadu)",
         example="Karnataka,Tamil Nadu",
     ),
     tru: Optional[str] = Query(
